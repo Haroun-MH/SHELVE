@@ -955,3 +955,234 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - TailwindCSS
 - Google Books API
 - Open Library API
+---
+
+## Microservices Architecture Compliance Checklist
+
+This section documents how Shelve complies with each requirement of a proper microservices architecture.
+
+### ✅ 1. Each Microservice Has Its Own Database
+
+| Service | Database | Port | Technology |
+|---------|----------|------|------------|
+| auth-service | auth_db | 5432 | PostgreSQL |
+| book-catalog-service | books_db | 5433 | PostgreSQL |
+| shelf-service | shelf_db | 5434 | PostgreSQL |
+| review-rating-service | review_db | 5435 | PostgreSQL |
+| recommendation-service | recommendation_db | 5436 | PostgreSQL |
+
+**Implementation**: Each service connects to its dedicated PostgreSQL instance, ensuring complete data isolation. No service directly accesses another service's database.
+
+---
+
+### ✅ 2. Services Expose REST APIs
+
+All microservices expose RESTful HTTP APIs:
+
+| Service | Base Path | Example Endpoints |
+|---------|-----------|-------------------|
+| auth-service | `/api/auth`, `/api/users` | `POST /api/auth/login`, `GET /api/users/profile` |
+| book-catalog-service | `/api/books` | `GET /api/books`, `GET /api/books/{id}`, `GET /api/books/search` |
+| shelf-service | `/api/shelves` | `POST /api/shelves`, `GET /api/shelves/{type}` |
+| review-rating-service | `/api/reviews`, `/api/ratings` | `POST /api/reviews`, `GET /api/ratings/book/{id}` |
+| recommendation-service | `/api/recommendations` | `GET /api/recommendations` |
+
+**Implementation**: Spring Boot `@RestController` for Java services, FastAPI router for Python service.
+
+---
+
+### ✅ 3. Service Discovery with Eureka Server
+
+**Location**: `discovery-server/` (Port 8761)
+
+**Implementation**:
+- Netflix Eureka Server configured with `@EnableEurekaServer`
+- All services register as Eureka clients
+- Dashboard accessible at `http://localhost:8761`
+
+**Service Registration** (example from auth-service `application.yml`):
+```yaml
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://discovery-server:8761/eureka/
+  instance:
+    preferIpAddress: true
+```
+
+---
+
+### ✅ 4. API Gateway
+
+**Location**: `api-gateway/` (Port 8080)
+
+**Implementation**:
+- Spring Cloud Gateway routes all external traffic
+- Centralized JWT authentication via `AuthenticationFilter.java`
+- Rate limiting and CORS configuration
+- Route definitions in `GatewayConfig.java`
+
+**Routing Table**:
+```
+/api/auth/**          → auth-service:8081
+/api/users/**         → auth-service:8081
+/api/books/**         → book-catalog-service:8082
+/api/shelves/**       → shelf-service:8083
+/api/reviews/**       → review-rating-service:8084
+/api/ratings/**       → review-rating-service:8084
+/api/recommendations/** → recommendation-service:8085
+```
+
+---
+
+### ✅ 5. Synchronous REST Communication Between Services
+
+| Consumer Service | Provider Service | Client Implementation | Endpoints Called |
+|------------------|------------------|----------------------|------------------|
+| review-rating-service | auth-service | `AuthServiceClient.java` (WebClient) | `GET /api/users/{id}/info`, `POST /api/users/batch/info` |
+| shelf-service | book-catalog-service | `BookClient.java` (OpenFeign) | `GET /api/books/batch` |
+| recommendation-service | book-catalog-service | HTTP requests (Python) | `GET /api/books/batch`, `GET /api/books/top-rated` |
+
+**Implementation Details**:
+- **review-rating-service**: Uses Spring WebClient with Resilience4j circuit breaker to fetch usernames when returning reviews
+- **shelf-service**: Uses OpenFeign declarative client with circuit breaker to enrich shelf items with book details
+- **recommendation-service**: Uses Python `httpx` client to fetch book details for recommendations
+
+---
+
+### ✅ 6. Asynchronous Event/Message Communication
+
+**Message Broker**: RabbitMQ (Port 5672, Management UI: 15672)
+
+**Exchanges & Queues**:
+
+| Exchange | Type | Queue | Producer | Consumer |
+|----------|------|-------|----------|----------|
+| `rating.exchange` | Topic | `rating.queue` | review-rating-service | recommendation-service |
+| `shelf.exchange` | Topic | `shelf.recommendation.queue` | shelf-service | recommendation-service |
+
+**Events Published**:
+
+1. **Rating Created Event** (`review-rating-service → recommendation-service`):
+   - File: `RatingEventPublisher.java`
+   - Trigger: User rates a book
+   - Payload: `{ userId, bookId, score, liked, timestamp }`
+   - Purpose: Update recommendation model with new rating data
+
+2. **Shelf Event** (`shelf-service → recommendation-service`):
+   - File: `ShelfEventPublisher.java`
+   - Trigger: Book added to READ shelf
+   - Payload: `{ userId, bookId, shelfType, eventType, timestamp }`
+   - Purpose: Create implicit rating when user finishes a book
+
+**Event Consumption**:
+- File: `recommendation-service/app/consumer.py`
+- Both rating and shelf events trigger recommendation model updates
+
+---
+
+### ✅ 7. Error Handling & Resilience (Circuit Breaker Pattern)
+
+**Implementation**: Resilience4j Circuit Breaker
+
+#### review-rating-service
+
+**File**: `AuthServiceClient.java`
+```java
+@CircuitBreaker(name = "authService", fallbackMethod = "getUserInfoFallback")
+@Retry(name = "authService")
+public UserInfo getUserInfo(String userId) { ... }
+
+// Fallback returns default UserInfo when auth-service is unavailable
+private UserInfo getUserInfoFallback(String userId, Throwable t) {
+    return new UserInfo(userId, "Unknown User", null);
+}
+```
+
+**Configuration** (`application.yml`):
+```yaml
+resilience4j:
+  circuitbreaker:
+    instances:
+      authService:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+  retry:
+    instances:
+      authService:
+        maxAttempts: 3
+        waitDuration: 500ms
+```
+
+#### shelf-service
+
+**File**: `BookClient.java`
+```java
+@FeignClient(name = "book-catalog-service", fallback = BookClientFallback.class)
+public interface BookClient {
+    @CircuitBreaker(name = "bookCatalogService")
+    List<BookResponse> getBooksByIds(@RequestParam List<String> ids);
+}
+```
+
+**Fallback**: `BookClientFallback.java` returns empty list when book-catalog-service is unavailable
+
+#### Additional Error Handling
+
+- **Global Exception Handlers**: Each service has `GlobalExceptionHandler.java` with `@ControllerAdvice`
+- **Custom Exceptions**: Service-specific exceptions (e.g., `BookNotFoundException`, `UserAlreadyExistsException`)
+- **Standardized Error Responses**: Consistent JSON error format across all services
+
+---
+
+### ✅ 8. Containerization with Docker
+
+**Files**:
+- `docker-compose.yml` - Orchestrates all 14 containers
+- `Dockerfile` in each service directory
+
+**Containers Defined**:
+
+| Container | Image | Ports |
+|-----------|-------|-------|
+| postgres-auth | postgres:15 | 5432 |
+| postgres-books | postgres:15 | 5433 |
+| postgres-shelf | postgres:15 | 5434 |
+| postgres-review | postgres:15 | 5435 |
+| postgres-recommendation | postgres:15 | 5436 |
+| rabbitmq | rabbitmq:3-management | 5672, 15672 |
+| config-server | Custom (Spring Boot) | 8888 |
+| discovery-server | Custom (Spring Boot) | 8761 |
+| api-gateway | Custom (Spring Boot) | 8080 |
+| auth-service | Custom (Spring Boot) | 8081 |
+| book-catalog-service | Custom (Spring Boot) | 8082 |
+| shelf-service | Custom (Spring Boot) | 8083 |
+| review-rating-service | Custom (Spring Boot) | 8084 |
+| recommendation-service | Custom (Python/FastAPI) | 8085 |
+| frontend | Custom (React/Nginx) | 3000 |
+
+**Docker Features Used**:
+- Multi-stage builds (frontend)
+- Health checks for service dependencies
+- Named volumes for data persistence
+- Custom network for inter-service communication
+- Environment variable injection
+
+---
+
+### Summary
+
+| # | Requirement | Status | Implementation |
+|---|-------------|--------|----------------|
+| 1 | Each MS has its own database | ✅ | 5 PostgreSQL instances (ports 5432-5436) |
+| 2 | REST APIs | ✅ | Spring @RestController, FastAPI router |
+| 3 | Service Discovery (Eureka) | ✅ | discovery-server with @EnableEurekaServer |
+| 4 | API Gateway | ✅ | Spring Cloud Gateway with JWT auth |
+| 5 | REST inter-service communication | ✅ | WebClient, OpenFeign, httpx |
+| 6 | Event/Message communication | ✅ | RabbitMQ with rating & shelf events |
+| 7 | Circuit Breaker & Error Handling | ✅ | Resilience4j with fallbacks |
+| 8 | Docker containerization | ✅ | docker-compose with 15 containers |
+
+**All 8 microservices architecture requirements are fully implemented.**
