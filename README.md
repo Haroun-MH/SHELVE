@@ -1186,3 +1186,679 @@ public interface BookClient {
 | 8 | Docker containerization | ✅ | docker-compose with 15 containers |
 
 **All 8 microservices architecture requirements are fully implemented.**
+
+---
+
+## API Endpoints Reference
+
+All endpoints are accessed through the **API Gateway** at `http://localhost:8080`. The gateway handles JWT authentication and routes requests to the appropriate microservice.
+
+### Authentication Headers
+
+For protected endpoints, include the JWT token in the `Authorization` header:
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+---
+
+### 🔐 Auth Service (`/api/auth`, `/api/users`)
+
+#### Public Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Register a new user |
+| POST | `/api/auth/login` | Login and get JWT token |
+
+#### Protected Endpoints (Require JWT)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/users/profile` | Get current user's profile |
+| PUT | `/api/users/profile` | Update user profile |
+| PUT | `/api/users/password` | Change password |
+| POST | `/api/users/onboarding/complete` | Mark onboarding as complete |
+| GET | `/api/users/{userId}/info` | Get user info by ID (internal) |
+| POST | `/api/users/batch/info` | Get multiple users info (internal) |
+
+#### Postman Examples
+
+**Register User**
+```http
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "password": "securePassword123"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+    "token": "eyJhbGciOiJIUzI1NiJ9...",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "john.doe@example.com",
+    "name": "John Doe",
+    "onboardingComplete": false
+}
+```
+
+**Login**
+```http
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+    "email": "john.doe@example.com",
+    "password": "securePassword123"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+    "token": "eyJhbGciOiJIUzI1NiJ9...",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "john.doe@example.com",
+    "name": "John Doe",
+    "onboardingComplete": true
+}
+```
+
+**Get User Profile**
+```http
+GET http://localhost:8080/api/users/profile
+Authorization: Bearer <jwt-token>
+```
+
+**Response (200 OK):**
+```json
+{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "avatarUrl": null,
+    "bio": null,
+    "onboardingComplete": true,
+    "createdAt": "2024-01-15T10:30:00"
+}
+```
+
+---
+
+### 📚 Book Catalog Service (`/api/books`)
+
+#### Endpoints (All Public)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/books` | Get all books (paginated) |
+| GET | `/api/books/{id}` | Get book by ID |
+| GET | `/api/books/batch?ids=id1,id2` | Get multiple books by IDs |
+| GET | `/api/books/search?q=query` | Search books by title/author |
+| GET | `/api/books/genre/{genre}` | Get books by genre |
+| GET | `/api/books/genres` | Get all available genres |
+| GET | `/api/books/top-rated` | Get top-rated books |
+| GET | `/api/books/recent` | Get recently added books |
+| POST | `/api/books` | Add a new book |
+
+#### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 0 | Page number (0-indexed) |
+| `size` | 20 | Items per page |
+| `sortBy` | title | Sort field |
+| `sortDir` | asc | Sort direction (asc/desc) |
+
+#### Postman Examples
+
+**Get All Books (Paginated)**
+```http
+GET http://localhost:8080/api/books?page=0&size=10&sortBy=title&sortDir=asc
+```
+
+**Response (200 OK):**
+```json
+{
+    "content": [
+        {
+            "id": "OL12345W",
+            "title": "The Great Gatsby",
+            "author": "F. Scott Fitzgerald",
+            "description": "A story of the Jazz Age...",
+            "coverUrl": "https://covers.openlibrary.org/b/id/12345-L.jpg",
+            "genre": "Fiction",
+            "publishedYear": 1925,
+            "isbn": "9780743273565",
+            "averageRating": 4.2,
+            "totalRatings": 150
+        }
+    ],
+    "page": 0,
+    "size": 10,
+    "totalElements": 100,
+    "totalPages": 10
+}
+```
+
+**Search Books**
+```http
+GET http://localhost:8080/api/books/search?q=harry potter&page=0&size=5
+```
+
+**Get Book by ID**
+```http
+GET http://localhost:8080/api/books/OL12345W
+```
+
+**Response (200 OK):**
+```json
+{
+    "id": "OL12345W",
+    "title": "Harry Potter and the Philosopher's Stone",
+    "author": "J.K. Rowling",
+    "description": "The first book in the Harry Potter series...",
+    "coverUrl": "https://covers.openlibrary.org/b/id/67890-L.jpg",
+    "genre": "Fantasy",
+    "publishedYear": 1997,
+    "isbn": "9780747532699",
+    "averageRating": 4.8,
+    "totalRatings": 5000
+}
+```
+
+**Get Books by Genre**
+```http
+GET http://localhost:8080/api/books/genre/Fantasy?page=0&size=10
+```
+
+**Create New Book**
+```http
+POST http://localhost:8080/api/books
+Content-Type: application/json
+
+{
+    "title": "New Book Title",
+    "author": "Author Name",
+    "description": "A fascinating story about...",
+    "coverUrl": "https://example.com/cover.jpg",
+    "genre": "Fiction",
+    "publishedYear": 2024,
+    "isbn": "9781234567890"
+}
+```
+
+---
+
+### 📖 Shelf Service (`/api/shelves`)
+
+#### Endpoints (All Protected - Require JWT)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/shelves` | Get all user's shelves with counts |
+| GET | `/api/shelves/{shelfType}` | Get books on a specific shelf |
+| POST | `/api/shelves/{shelfType}/books/{bookId}` | Add book to shelf |
+| PUT | `/api/shelves/books/{bookId}` | Move book between shelves |
+| DELETE | `/api/shelves/books/{bookId}` | Remove book from all shelves |
+| GET | `/api/shelves/books/{bookId}/status` | Check which shelf a book is on |
+
+#### Shelf Types
+
+| Type | Description |
+|------|-------------|
+| `WANT_TO_READ` | Books user wants to read |
+| `READING` | Books currently being read |
+| `READ` | Books already finished |
+
+#### Postman Examples
+
+**Get All Shelves**
+```http
+GET http://localhost:8080/api/shelves
+Authorization: Bearer <jwt-token>
+```
+
+**Response (200 OK):**
+```json
+{
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "wantToRead": {
+        "count": 15,
+        "items": []
+    },
+    "reading": {
+        "count": 3,
+        "items": []
+    },
+    "read": {
+        "count": 42,
+        "items": []
+    }
+}
+```
+
+**Get Books on "Reading" Shelf**
+```http
+GET http://localhost:8080/api/shelves/READING
+Authorization: Bearer <jwt-token>
+```
+
+**Response (200 OK):**
+```json
+[
+    {
+        "id": "abc123",
+        "bookId": "OL12345W",
+        "shelfType": "READING",
+        "addedAt": "2024-01-20T14:30:00",
+        "book": {
+            "id": "OL12345W",
+            "title": "The Great Gatsby",
+            "author": "F. Scott Fitzgerald",
+            "coverUrl": "https://covers.openlibrary.org/b/id/12345-L.jpg"
+        }
+    }
+]
+```
+
+**Add Book to Shelf**
+```http
+POST http://localhost:8080/api/shelves/WANT_TO_READ/books/OL12345W
+Authorization: Bearer <jwt-token>
+```
+
+**Response (201 Created):**
+```json
+{
+    "id": "def456",
+    "bookId": "OL12345W",
+    "shelfType": "WANT_TO_READ",
+    "addedAt": "2024-01-21T09:15:00",
+    "book": {
+        "id": "OL12345W",
+        "title": "1984",
+        "author": "George Orwell",
+        "coverUrl": "https://covers.openlibrary.org/b/id/54321-L.jpg"
+    }
+}
+```
+
+**Move Book Between Shelves**
+```http
+PUT http://localhost:8080/api/shelves/books/OL12345W
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+    "targetShelf": "READING"
+}
+```
+
+**Remove Book from Shelf**
+```http
+DELETE http://localhost:8080/api/shelves/books/OL12345W
+Authorization: Bearer <jwt-token>
+```
+
+**Response (204 No Content)**
+
+---
+
+### ⭐ Review & Rating Service (`/api/reviews`, `/api/ratings`)
+
+#### Review Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/reviews` | Create a review (Protected) |
+| PUT | `/api/reviews/{reviewId}` | Update a review (Protected) |
+| GET | `/api/reviews/{reviewId}` | Get review by ID |
+| GET | `/api/reviews/book/{bookId}` | Get all reviews for a book |
+| GET | `/api/reviews/user` | Get current user's reviews (Protected) |
+| DELETE | `/api/reviews/{reviewId}` | Delete a review (Protected) |
+
+#### Rating Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/ratings` | Rate a book (Protected) |
+| POST | `/api/ratings/initial` | Submit initial liked books (Protected) |
+| PUT | `/api/ratings/book/{bookId}?score=4` | Update rating (Protected) |
+| GET | `/api/ratings/book/{bookId}` | Get user's rating for a book (Protected) |
+| GET | `/api/ratings/user` | Get all user's ratings (Protected) |
+| GET | `/api/ratings/book/{bookId}/all` | Get all ratings for a book |
+| GET | `/api/ratings/book/{bookId}/average` | Get average rating for a book |
+
+#### Postman Examples
+
+**Create Review**
+```http
+POST http://localhost:8080/api/reviews
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+    "bookId": "OL12345W",
+    "title": "A Masterpiece of Literature",
+    "content": "This book truly captures the essence of the American Dream. Fitzgerald's prose is elegant and the characters are unforgettable. A must-read for anyone interested in classic literature."
+}
+```
+
+**Response (201 Created):**
+```json
+{
+    "id": "rev-123456",
+    "bookId": "OL12345W",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "John Doe",
+    "title": "A Masterpiece of Literature",
+    "content": "This book truly captures the essence of the American Dream...",
+    "createdAt": "2024-01-21T10:30:00",
+    "updatedAt": "2024-01-21T10:30:00"
+}
+```
+
+**Get Book Reviews**
+```http
+GET http://localhost:8080/api/reviews/book/OL12345W?page=0&size=10
+```
+
+**Response (200 OK):**
+```json
+{
+    "content": [
+        {
+            "id": "rev-123456",
+            "bookId": "OL12345W",
+            "userId": "550e8400-e29b-41d4-a716-446655440000",
+            "username": "John Doe",
+            "title": "A Masterpiece of Literature",
+            "content": "This book truly captures the essence...",
+            "createdAt": "2024-01-21T10:30:00",
+            "updatedAt": "2024-01-21T10:30:00"
+        }
+    ],
+    "page": 0,
+    "size": 10,
+    "totalElements": 25,
+    "totalPages": 3
+}
+```
+
+**Rate a Book**
+```http
+POST http://localhost:8080/api/ratings
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+    "bookId": "OL12345W",
+    "score": 5
+}
+```
+
+**Response (201 Created):**
+```json
+{
+    "id": "rat-789012",
+    "bookId": "OL12345W",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "score": 5,
+    "createdAt": "2024-01-21T10:35:00"
+}
+```
+
+**Submit Initial Liked Books (Onboarding)**
+```http
+POST http://localhost:8080/api/ratings/initial
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+    "bookIds": ["OL12345W", "OL67890W", "OL11111W"]
+}
+```
+
+**Response (201 Created):**
+```json
+[
+    {
+        "id": "rat-001",
+        "bookId": "OL12345W",
+        "userId": "550e8400-e29b-41d4-a716-446655440000",
+        "score": 5,
+        "createdAt": "2024-01-21T10:40:00"
+    },
+    {
+        "id": "rat-002",
+        "bookId": "OL67890W",
+        "userId": "550e8400-e29b-41d4-a716-446655440000",
+        "score": 5,
+        "createdAt": "2024-01-21T10:40:00"
+    }
+]
+```
+
+**Get Average Rating for a Book**
+```http
+GET http://localhost:8080/api/ratings/book/OL12345W/average
+```
+
+**Response (200 OK):**
+```json
+4.5
+```
+
+---
+
+### 🤖 Recommendation Service (`/api/recommendations`)
+
+#### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/recommendations` | Get personalized recommendations (Protected) |
+| POST | `/api/recommendations/retrain` | Manually retrain ML model (Internal) |
+| GET | `/api/recommendations/health` | Health check |
+
+#### Query Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `limit` | 10 | Number of recommendations (max 50) |
+
+#### Postman Examples
+
+**Get Recommendations**
+```http
+GET http://localhost:8080/api/recommendations?limit=10
+Authorization: Bearer <jwt-token>
+```
+
+**Response (200 OK):**
+```json
+{
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "recommendations": [
+        {
+            "bookId": "OL98765W",
+            "score": 0.95,
+            "reason": "Based on your interest in Fantasy"
+        },
+        {
+            "bookId": "OL54321W",
+            "score": 0.89,
+            "reason": "Users with similar taste also enjoyed this"
+        }
+    ],
+    "generatedAt": "2024-01-21T11:00:00"
+}
+```
+
+**Health Check**
+```http
+GET http://localhost:8080/api/recommendations/health
+```
+
+**Response (200 OK):**
+```json
+{
+    "status": "UP",
+    "service": "recommendation-service",
+    "timestamp": "2024-01-21T11:05:00"
+}
+```
+
+---
+
+## Complete Testing Workflow in Postman
+
+Here's a step-by-step workflow to test the entire application:
+
+### Step 1: Register a New User
+```http
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+    "name": "Test User",
+    "email": "test@example.com",
+    "password": "password123"
+}
+```
+📝 Save the `token` from the response.
+
+### Step 2: Search for Books
+```http
+GET http://localhost:8080/api/books/search?q=lord of the rings
+```
+📝 Note some book IDs from the results.
+
+### Step 3: Like Initial Books (Onboarding)
+```http
+POST http://localhost:8080/api/ratings/initial
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "bookIds": ["<book-id-1>", "<book-id-2>", "<book-id-3>"]
+}
+```
+
+### Step 4: Complete Onboarding
+```http
+POST http://localhost:8080/api/users/onboarding/complete
+Authorization: Bearer <token>
+```
+
+### Step 5: Add Book to "Want to Read" Shelf
+```http
+POST http://localhost:8080/api/shelves/WANT_TO_READ/books/<book-id>
+Authorization: Bearer <token>
+```
+
+### Step 6: Move Book to "Reading" Shelf
+```http
+PUT http://localhost:8080/api/shelves/books/<book-id>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "targetShelf": "READING"
+}
+```
+
+### Step 7: Rate the Book
+```http
+POST http://localhost:8080/api/ratings
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "bookId": "<book-id>",
+    "score": 5
+}
+```
+
+### Step 8: Write a Review
+```http
+POST http://localhost:8080/api/reviews
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "bookId": "<book-id>",
+    "title": "Absolutely Amazing!",
+    "content": "This is one of the best books I have ever read. The world-building is incredible and the characters are so well developed."
+}
+```
+
+### Step 9: Move Book to "Read" Shelf
+```http
+PUT http://localhost:8080/api/shelves/books/<book-id>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "targetShelf": "READ"
+}
+```
+
+### Step 10: Get Recommendations
+```http
+GET http://localhost:8080/api/recommendations?limit=10
+Authorization: Bearer <token>
+```
+
+---
+
+## Postman Collection Import
+
+You can import this collection directly into Postman by creating a new collection with these environment variables:
+
+| Variable | Value |
+|----------|-------|
+| `BASE_URL` | `http://localhost:8080` |
+| `TOKEN` | (set after login) |
+
+Then use `{{BASE_URL}}` and `{{TOKEN}}` in your requests:
+```
+{{BASE_URL}}/api/auth/login
+Authorization: Bearer {{TOKEN}}
+```
+
+---
+
+## Error Response Format
+
+All services return errors in a consistent format:
+
+```json
+{
+    "timestamp": "2024-01-21T12:00:00",
+    "status": 400,
+    "error": "Bad Request",
+    "message": "Validation failed",
+    "path": "/api/auth/register"
+}
+```
+
+### Common HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | OK - Request succeeded |
+| 201 | Created - Resource created |
+| 204 | No Content - Deleted successfully |
+| 400 | Bad Request - Invalid input |
+| 401 | Unauthorized - Missing/invalid JWT |
+| 403 | Forbidden - Access denied |
+| 404 | Not Found - Resource doesn't exist |
+| 409 | Conflict - Resource already exists |
+| 500 | Internal Server Error |
